@@ -1,22 +1,31 @@
 import xml.parsers.expat as xml_parser
 import requests
 import re
+import numpy as np
+
+AMINO_ACID_LIST = 'ARNDCEQGHILKMFPSTWYV'
+AMINO_ACID_INDEX = { a: AMINO_ACID_LIST.find(a) for a in AMINO_ACID_LIST }
 
 class Protein:
     def __init__(self, name):
         self.name = name
         self.terms = None
+        self.sequence = None
 
     def load_uniprot(self):
         self.load_url(f'https://rest.uniprot.org/uniprotkb/{self.name}.xml')
 
     def load_url(self, url):
         data = self._fetch_xml_url(url)
-        self.terms = Protein.parse_xml(data)
+        self._apply_parsed(Protein.parse_xml(data))
 
     def load_file(self, file):
         data = open(file, encoding='utf-8').read()
-        self.terms = Protein.parse_xml(data)
+        self._apply_parsed(Protein.parse_xml(data))
+
+    def _apply_parsed(self, parsed):
+        self.terms = parsed.get('terms')
+        self.sequence = parsed.get('sequence')
 
     def _fetch_xml_url(self, url):
         r = requests.get(url)
@@ -35,15 +44,28 @@ class Protein:
             self.load_uniprot()
         return self.terms.get('go')
 
+    def one_hot_sequence(self):
+        n = len(self.sequence)
+        seq = np.ndarray(shape=(n,20), dtype=float, order='C')
+        seq.fill(0.0)
+        for i in range(0,n):
+            j = AMINO_ACID_INDEX.get(self.sequence[i])
+            if j is not None:
+                seq[i][j] = 1.0
+        return seq
+
     def parse_xml(xml_data):
         cursor = {
             'terms': { 'go': [] },
             'dbref': None,
+            'current_name': None,
+            'sequence': None,
         }
 
         def start_element(cursor, name, attrs):
             atype = attrs.get('type')
             dbref = cursor.get('dbref')
+            cursor['current_name'] = name
             if dbref != None and name == 'property' and atype != None:
                 dbref['properties'][atype] = attrs.get('value')
             if name == 'dbReference' and atype == 'GO':
@@ -54,15 +76,17 @@ class Protein:
                 cursor['dbref'] = dbref
                 cursor['terms']['go'].append(dbref)
 
-        def end_element(name):
-            pass
+        def end_element(cursor, name):
+            cursor['current_name'] = None
+
         def char_data(data):
-            pass
+            if cursor.get('current_name') == 'sequence':
+                cursor['sequence'] = data
 
         p = xml_parser.ParserCreate()
         p.StartElementHandler = lambda name, attrs: start_element(cursor, name, attrs)
-        p.EndElementHandler = end_element
+        p.EndElementHandler = lambda name: end_element(cursor, name)
         p.CharacterDataHandler = char_data
         p.Parse(xml_data)
 
-        return cursor.get('terms')
+        return { key: cursor.get(key) for key in ['terms','sequence'] }
