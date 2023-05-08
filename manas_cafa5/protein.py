@@ -9,23 +9,21 @@ AMINO_ACID_INDEX = { a: AMINO_ACID_LIST.find(a) for a in AMINO_ACID_LIST }
 class Protein:
     def __init__(self, name):
         self.name = name
-        self.terms = None
-        self.sequence = None
+        self.entries = None
+
+    def __len__(self):
+        return self.entries and len(self.entries) or 0
 
     def load_uniprot(self):
         self.load_url(f'https://rest.uniprot.org/uniprotkb/{self.name}.xml')
 
     def load_url(self, url):
         data = self._fetch_xml_url(url)
-        self._apply_parsed(Protein.parse_xml(data))
+        self.entries = Protein.parse_xml(data)
 
     def load_file(self, file):
         data = open(file, encoding='utf-8').read()
-        self._apply_parsed(Protein.parse_xml(data))
-
-    def _apply_parsed(self, parsed):
-        self.terms = parsed.get('terms')
-        self.sequence = parsed.get('sequence')
+        self.entries = Protein.parse_xml(data)
 
     def _fetch_xml_url(self, url):
         r = requests.get(url)
@@ -39,49 +37,67 @@ class Protein:
                 f'received: {r.headers["content-type"]}'))
         return r.text
 
-    def go_terms(self):
-        if self.terms == None:
+    def _auto_load(self):
+        if self.entries is None:
             self.load_uniprot()
-        return self.terms.get('go')
 
-    def one_hot_sequence(self):
-        n = len(self.sequence)
-        seq = np.ndarray(shape=(n,20), dtype=float, order='C')
-        seq.fill(0.0)
+    def go_terms(self, index=0):
+        self._auto_load()
+        entry = self.entries[index]
+        return entry and entry['terms']['go']
+
+    def get_sequence(self, index=0):
+        self._auto_load()
+        entry = self.entries[index]
+        return entry and entry.get('sequence')
+
+    def one_hot_sequence(self, index=0):
+        self._auto_load()
+        seq = self.get_sequence(index)
+        if seq is None:
+            return None
+        n = len(seq)
+        nd_seq = np.ndarray(shape=(n,20), dtype=float, order='C')
+        nd_seq.fill(0.0)
         for i in range(0,n):
-            j = AMINO_ACID_INDEX.get(self.sequence[i])
+            j = AMINO_ACID_INDEX.get(seq[i])
             if j is not None:
-                seq[i][j] = 1.0
-        return seq
+                nd_seq[i][j] = 1.0
+        return nd_seq
 
     def parse_xml(xml_data):
         cursor = {
-            'terms': { 'go': [] },
-            'dbref': None,
+            'entries': [],
             'current_name': None,
-            'sequence': None,
         }
 
         def start_element(cursor, name, attrs):
             atype = attrs.get('type')
-            dbref = cursor.get('dbref')
-            cursor['current_name'] = name
-            if dbref != None and name == 'property' and atype != None:
-                dbref['properties'][atype] = attrs.get('value')
-            if name == 'dbReference' and atype == 'GO':
-                dbref = {
+            lname = name and name.lower()
+            latype = atype and atype.lower()
+            if lname == 'entry':
+                cursor['entries'].append({
+                    'terms': { 'go': [] },
+                    'sequence': None,
+                })
+            elif lname == 'dbreference' and latype == 'go':
+                cursor['entries'][-1]['terms']['go'].append({
                     'id': attrs.get('id'),
                     'properties': {},
-                }
-                cursor['dbref'] = dbref
-                cursor['terms']['go'].append(dbref)
+                })
+            else:
+                cursor['current_name'] = name
+                entries = cursor['entries']
+                terms = len(entries) > 0 and entries[-1]['terms']
+                if terms is not None and lname == 'property' and latype is not None:
+                    terms['go'][-1]['properties'][latype] = attrs.get('value')
 
         def end_element(cursor, name):
             cursor['current_name'] = None
 
         def char_data(data):
             if cursor.get('current_name') == 'sequence':
-                cursor['sequence'] = data
+                cursor['entries'][-1]['sequence'] = data
 
         p = xml_parser.ParserCreate()
         p.StartElementHandler = lambda name, attrs: start_element(cursor, name, attrs)
@@ -89,4 +105,4 @@ class Protein:
         p.CharacterDataHandler = char_data
         p.Parse(xml_data)
 
-        return { key: cursor.get(key) for key in ['terms','sequence'] }
+        return cursor['entries']
