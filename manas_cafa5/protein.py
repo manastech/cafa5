@@ -2,6 +2,8 @@ import xml.parsers.expat as xml_parser
 import requests
 import re
 import numpy as np
+import obonet, networkx
+from functools import reduce
 
 AMINO_ACID_LIST = 'ARNDCEQGHILKMFPSTWYV'
 AMINO_ACID_INDEX = { a: AMINO_ACID_LIST.find(a) for a in AMINO_ACID_LIST }
@@ -43,6 +45,17 @@ class Protein:
         if self.terms == None:
             self.load_uniprot()
         return self.terms.get('go')
+
+    def go_terms_children(self, graph):
+        return list(reduce(
+            lambda terms, term: terms.union(networkx.descendants(graph, term['id'])),
+            self.go_terms(),
+            set()
+        ))
+
+    def build_graph(url_or_file):
+        # example url to use: https://current.geneontology.org/ontology/go-basic.obo
+        return obonet.read_obo(url_or_file)
 
     def one_hot_sequence(self):
         n = len(self.sequence)
