@@ -46,13 +46,19 @@ class Protein:
             self.load_uniprot()
         return self.terms.get('go')
 
-    def go_terms_children(self, graph):
-        return list(reduce(
-            lambda terms, term: terms.union(networkx.descendants(graph, term['id'])),
-            self.go_terms(),
-            set()
-        ))
+    def go_terms_children(self, graph, max_distance):
+        term_set = set()
+        for dist in range(1,max_distance+1):
+            term_set = reduce(
+                lambda terms, term: terms.union(
+                    networkx.descendants_at_distance(graph, term['id'], dist)
+                ),
+                self.go_terms(),
+                term_set
+            )
+        return list(term_set)
 
+    @staticmethod
     def build_graph(url_or_file):
         # example url to use: https://current.geneontology.org/ontology/go-basic.obo
         return obonet.read_obo(url_or_file)
