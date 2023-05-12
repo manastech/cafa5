@@ -37,6 +37,9 @@ class Structure:
     def load_pdb(self, name):
         self.load_url(f'ftp://ftp.wwpdb.org//pub/pdb/data/structures/all/pdb/pdb{name}.ent.gz')
 
+    def load_alphafold(self, name):
+        self.load_url(f'https://alphafold.ebi.ac.uk/files/AF-P{name}-F1-model_v4.pdb')
+
     # https://warwick.ac.uk/fac/sci/moac/people/students/peter_cock/python/protein_contact_map/
     def contact_map(self, chain_one, chain_two, threshold):
         model = self.structure[0]
