@@ -1,3 +1,4 @@
+from .structure import Structure
 import xml.parsers.expat as xml_parser
 import requests
 import re
@@ -13,6 +14,10 @@ class Protein:
         self.name = name
         self.terms = None
         self.sequence = None
+        self.structure_list = None
+
+    def __repr__(self):
+        return f'<manas_cafa5.Protein name={self.name}>'
 
     def load_uniprot(self):
         self.load_url(f'https://rest.uniprot.org/uniprotkb/{self.name}.xml')
@@ -26,7 +31,11 @@ class Protein:
         self._apply_parsed(Protein.parse_xml(data))
 
     def _apply_parsed(self, parsed):
-        self.terms = parsed.get('terms')
+        terms = parsed.get('terms')
+        self.terms = {
+            key: [ Structure(term) for term in terms.get(key) ]
+            for key in terms
+        }
         self.sequence = parsed.get('sequence')
 
     def _fetch_xml_url(self, url):
@@ -41,22 +50,32 @@ class Protein:
                 f'received: {r.headers["content-type"]}'))
         return r.text
 
-    def go_terms(self):
-        if self.terms == None:
-            self.load_uniprot()
-        return self.terms.get('go')
+    def get_term_types(self):
+        return list(self.terms.keys())
 
-    def go_terms_children(self, graph, max_distance):
+    def get_terms(self, term_type):
+        if self.terms is None:
+            self.load_uniprot()
+        return self.terms.get(term_type.lower()) or []
+
+    def get_children(self, term_type, graph, max_distance):
         term_set = set()
         for dist in range(1,max_distance+1):
             term_set = reduce(
                 lambda terms, term: terms.union(
-                    networkx.descendants_at_distance(graph, term['id'], dist)
+                    networkx.descendants_at_distance(graph, term.id, dist)
                 ),
-                self.go_terms(),
+                self.get_terms(term_type),
                 term_set
             )
-        return list(term_set)
+        return [
+            Structure({
+                'type': 'go',
+                'id': term_id,
+                'properties': {},
+            })
+            for term_id in term_set
+        ]
 
     @staticmethod
     def build_graph(url_or_file):
@@ -75,25 +94,32 @@ class Protein:
 
     def parse_xml(xml_data):
         cursor = {
-            'terms': { 'go': [] },
+            'terms': {},
             'dbref': None,
             'current_name': None,
             'sequence': None,
         }
 
         def start_element(cursor, name, attrs):
+            name = name.lower()
             atype = attrs.get('type')
+            atype = atype and atype.lower()
             dbref = cursor.get('dbref')
             cursor['current_name'] = name
-            if dbref != None and name == 'property' and atype != None:
+            if dbref is not None and name == 'property' and atype is not None:
                 dbref['properties'][atype] = attrs.get('value')
-            if name == 'dbReference' and atype == 'GO':
+            if name == 'dbreference' and atype is not None:
                 dbref = {
+                    'type': atype,
                     'id': attrs.get('id'),
                     'properties': {},
                 }
                 cursor['dbref'] = dbref
-                cursor['terms']['go'].append(dbref)
+                terms = cursor['terms'].get(atype)
+                if terms is None:
+                    terms = []
+                    cursor['terms'][atype] = terms
+                terms.append(dbref)
 
         def end_element(cursor, name):
             cursor['current_name'] = None

@@ -6,8 +6,22 @@ from .utils import fetch_url
 import numpy as np
 
 class Structure:
-    def __init__(self):
+    def __init__(self, term):
+        self.type = term.get('type')
+        self.id = term.get('id')
+        self.properties = term.get('properties')
         self.structure = None
+
+    def __repr__(self):
+        return f'<manas_cafa5.Structure id={self.id} type={self.type} properties={self.properties}>'
+
+    def load(self):
+        if self.type == 'pdb':
+            self.load_url(f'ftp://ftp.wwpdb.org/pub/pdb/data/structures/all/pdb/pdb{self.id}.ent.gz')
+        elif self.type == 'alphafolddb':
+            self.load_url(f'https://alphafold.ebi.ac.uk/files/AF-{self.id}-F1-model_v4.pdb')
+        else:
+            raise RuntimeError(f'default endpoint for type {self.type} not available')
 
     def load_file(self, file, id=None):
         data = None
@@ -34,12 +48,13 @@ class Structure:
             data = str(data, 'utf-8')
         self.structure = parser.get_structure(id, StringIO(data))
 
-    def load_pdb(self, name):
-        self.load_url(f'ftp://ftp.wwpdb.org//pub/pdb/data/structures/all/pdb/pdb{name}.ent.gz')
-
     # https://warwick.ac.uk/fac/sci/moac/people/students/peter_cock/python/protein_contact_map/
-    def contact_map(self, chain_one, chain_two, threshold):
-        model = self.structure[0]
+    def contact_map(self, chain_one, chain_two, threshold, index=0):
+        if self.structure is None:
+            raise RuntimeError(f'structure for type {self.type} not loaded. call load() first')
+        if len(self.structure) == 0:
+            raise RuntimeError('no structures available')
+        model = self.structure[index]
         c1 = model[chain_one]
         c2 = model[chain_two]
         cmap = np.zeros((len(c1), len(c2)), np.float)
