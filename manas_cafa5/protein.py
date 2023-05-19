@@ -1,4 +1,4 @@
-from .structure import Structure
+from .structure import Structure, STRUCTURE_TERMS
 import xml.parsers.expat as xml_parser
 import requests
 import re
@@ -10,14 +10,28 @@ AMINO_ACID_LIST = 'ARNDCEQGHILKMFPSTWYV'
 AMINO_ACID_INDEX = { a: AMINO_ACID_LIST.find(a) for a in AMINO_ACID_LIST }
 
 class Protein:
-    def __init__(self, name):
+    def __init__(self, name, **kwargs):
         self.name = name
         self.terms = None
         self.sequence = None
-        self.structure_list = None
+        self.structures = None
+        if kwargs.get('autoload') != False:
+            self.load_uniprot()
 
     def __repr__(self):
         return f'<manas_cafa5.Protein name={self.name}>'
+
+    @staticmethod
+    def from_file(name, file):
+        protein = Protein(name, autoload=False)
+        protein.load_file(file)
+        return protein
+
+    @staticmethod
+    def from_url(name, url):
+        protein = Protein(name, autoload=False)
+        protein.load_url(url)
+        return protein
 
     def load_uniprot(self):
         self.load_url(f'https://rest.uniprot.org/uniprotkb/{self.name}.xml')
@@ -31,10 +45,10 @@ class Protein:
         self._apply_parsed(Protein.parse_xml(data))
 
     def _apply_parsed(self, parsed):
-        terms = parsed.get('terms')
-        self.terms = {
-            key: [ Structure(term) for term in terms.get(key) ]
-            for key in terms
+        self.terms = parsed.get('terms')
+        self.structures = {
+            key: [ Structure(term) for term in self.terms.get(key) ]
+            for key in STRUCTURE_TERMS
         }
         self.sequence = parsed.get('sequence')
 
@@ -50,12 +64,16 @@ class Protein:
                 f'received: {r.headers["content-type"]}'))
         return r.text
 
+    def get_structure_types(self):
+        return list(self.structures.keys())
+
+    def get_structures(self, structure_type):
+        return self.structures.get(structure_type.lower()) or []
+
     def get_term_types(self):
         return list(self.terms.keys())
 
     def get_terms(self, term_type):
-        if self.terms is None:
-            self.load_uniprot()
         return self.terms.get(term_type.lower()) or []
 
     def get_children(self, term_type, graph, max_distance):
@@ -63,19 +81,25 @@ class Protein:
         for dist in range(1,max_distance+1):
             term_set = reduce(
                 lambda terms, term: terms.union(
-                    networkx.descendants_at_distance(graph, term.id, dist)
+                    networkx.descendants_at_distance(graph, term['id'], dist)
                 ),
                 self.get_terms(term_type),
                 term_set
             )
         return [
-            Structure({
+            {
                 'type': 'go',
                 'id': term_id,
                 'properties': {},
-            })
+            }
             for term_id in term_set
         ]
+
+    def go_terms(self):
+        return self.get_terms('go')
+
+    def go_terms_children(self, graph, max_distance):
+        return self.get_children('go', graph, max_distance)
 
     @staticmethod
     def build_graph(url_or_file):

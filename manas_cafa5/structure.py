@@ -5,6 +5,8 @@ from io import StringIO
 from .utils import fetch_url
 import numpy as np
 
+STRUCTURE_TERMS = set([ 'pdb', 'alphafolddb' ])
+
 class Structure:
     def __init__(self, term):
         self.type = term.get('type')
