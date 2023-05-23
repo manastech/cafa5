@@ -1,3 +1,4 @@
+from .structure import Structure, STRUCTURE_TERMS
 import xml.parsers.expat as xml_parser
 import requests
 import re
@@ -9,10 +10,28 @@ AMINO_ACID_LIST = 'ARNDCEQGHILKMFPSTWYV'
 AMINO_ACID_INDEX = { a: AMINO_ACID_LIST.find(a) for a in AMINO_ACID_LIST }
 
 class Protein:
-    def __init__(self, name):
+    def __init__(self, name, **kwargs):
         self.name = name
         self.terms = None
         self.sequence = None
+        self.structures = None
+        if kwargs.get('autoload') != False:
+            self.load_uniprot()
+
+    def __repr__(self):
+        return f'<manas_cafa5.Protein name={self.name}>'
+
+    @staticmethod
+    def from_file(name, file):
+        protein = Protein(name, autoload=False)
+        protein.load_file(file)
+        return protein
+
+    @staticmethod
+    def from_url(name, url):
+        protein = Protein(name, autoload=False)
+        protein.load_url(url)
+        return protein
 
     def load_uniprot(self):
         self.load_url(f'https://rest.uniprot.org/uniprotkb/{self.name}.xml')
@@ -27,6 +46,10 @@ class Protein:
 
     def _apply_parsed(self, parsed):
         self.terms = parsed.get('terms')
+        self.structures = {
+            key: [ Structure(term) for term in self.terms.get(key) ]
+            for key in STRUCTURE_TERMS
+        }
         self.sequence = parsed.get('sequence')
 
     def _fetch_xml_url(self, url):
@@ -41,22 +64,42 @@ class Protein:
                 f'received: {r.headers["content-type"]}'))
         return r.text
 
-    def go_terms(self):
-        if self.terms == None:
-            self.load_uniprot()
-        return self.terms.get('go')
+    def get_structure_types(self):
+        return list(self.structures.keys())
 
-    def go_terms_children(self, graph, max_distance):
+    def get_structures(self, structure_type):
+        return self.structures.get(structure_type.lower()) or []
+
+    def get_term_types(self):
+        return list(self.terms.keys())
+
+    def get_terms(self, term_type):
+        return self.terms.get(term_type.lower()) or []
+
+    def get_children(self, term_type, graph, max_distance):
         term_set = set()
         for dist in range(1,max_distance+1):
             term_set = reduce(
                 lambda terms, term: terms.union(
                     networkx.descendants_at_distance(graph, term['id'], dist)
                 ),
-                self.go_terms(),
+                self.get_terms(term_type),
                 term_set
             )
-        return list(term_set)
+        return [
+            {
+                'type': 'go',
+                'id': term_id,
+                'properties': {},
+            }
+            for term_id in term_set
+        ]
+
+    def go_terms(self):
+        return self.get_terms('go')
+
+    def go_terms_children(self, graph, max_distance):
+        return self.get_children('go', graph, max_distance)
 
     @staticmethod
     def build_graph(url_or_file):
@@ -75,25 +118,32 @@ class Protein:
 
     def parse_xml(xml_data):
         cursor = {
-            'terms': { 'go': [] },
+            'terms': {},
             'dbref': None,
             'current_name': None,
             'sequence': None,
         }
 
         def start_element(cursor, name, attrs):
+            name = name.lower()
             atype = attrs.get('type')
+            atype = atype and atype.lower()
             dbref = cursor.get('dbref')
             cursor['current_name'] = name
-            if dbref != None and name == 'property' and atype != None:
+            if dbref is not None and name == 'property' and atype is not None:
                 dbref['properties'][atype] = attrs.get('value')
-            if name == 'dbReference' and atype == 'GO':
+            if name == 'dbreference' and atype is not None:
                 dbref = {
+                    'type': atype,
                     'id': attrs.get('id'),
                     'properties': {},
                 }
                 cursor['dbref'] = dbref
-                cursor['terms']['go'].append(dbref)
+                terms = cursor['terms'].get(atype)
+                if terms is None:
+                    terms = []
+                    cursor['terms'][atype] = terms
+                terms.append(dbref)
 
         def end_element(cursor, name):
             cursor['current_name'] = None
