@@ -5,6 +5,7 @@ import re
 import numpy as np
 import obonet, networkx
 from functools import reduce
+import math
 
 AMINO_ACID_LIST = 'ARNDCEQGHILKMFPSTWYV'
 AMINO_ACID_INDEX = { a: AMINO_ACID_LIST.find(a) for a in AMINO_ACID_LIST }
@@ -95,6 +96,23 @@ class Protein:
             for term_id in term_set
         ]
 
+    def get_parents(self, term_type, graph):
+        term_set = reduce(
+            lambda terms, term: terms.union(
+                networkx.ancestors(graph, term['id'])
+            ),
+            self.get_terms(term_type),
+            set()
+        )
+        return [
+            {
+                'type': 'go',
+                'id': term_id,
+                'properties': {},
+            }
+            for term_id in term_set
+        ]
+
     def go_terms(self):
         return self.get_terms('go')
 
@@ -105,6 +123,11 @@ class Protein:
     def build_graph(url_or_file):
         # example url to use: https://current.geneontology.org/ontology/go-basic.obo
         return obonet.read_obo(url_or_file)
+
+    def ia(self, term_type, graph):
+        parent_count = float(len(self.get_parents(term_type, graph)))
+        term_count = float(len(self.get_terms(term_type)))
+        return math.log2((1.0 + parent_count) / (1.0 + term_count))
 
     def one_hot_sequence(self):
         n = len(self.sequence)
