@@ -1,10 +1,12 @@
 from .structure import Structure, STRUCTURE_TERMS
+from .utils import ancestors_within_distance
 import xml.parsers.expat as xml_parser
 import requests
 import re
 import numpy as np
 import obonet, networkx
 from functools import reduce
+import math
 
 AMINO_ACID_LIST = 'ARNDCEQGHILKMFPSTWYV'
 AMINO_ACID_INDEX = { a: AMINO_ACID_LIST.find(a) for a in AMINO_ACID_LIST }
@@ -76,15 +78,19 @@ class Protein:
     def get_terms(self, term_type):
         return self.terms.get(term_type.lower()) or []
 
-    def get_children(self, term_type, graph, max_distance):
-        term_set = set()
+    def get_children(self, term_type, graph, max_distance=1):
+        terms_list = self.get_terms(term_type)
+        terms_set = set([ term['id'] for term in terms_list ])
+        children = set()
         for dist in range(1,max_distance+1):
-            term_set = reduce(
-                lambda terms, term: terms.union(
-                    networkx.descendants_at_distance(graph, term['id'], dist)
-                ),
-                self.get_terms(term_type),
-                term_set
+            children = reduce(
+                lambda terms, term: terms.union({
+                    child
+                    for child in networkx.descendants_at_distance(graph, term['id'], dist)
+                    if child not in terms_set
+                }),
+                terms_list,
+                children
             )
         return [
             {
@@ -92,7 +98,28 @@ class Protein:
                 'id': term_id,
                 'properties': {},
             }
-            for term_id in term_set
+            for term_id in children
+        ]
+
+    def get_parents(self, term_type, graph, max_distance=1):
+        terms_list = self.get_terms(term_type)
+        terms_set = set([ term['id'] for term in terms_list ])
+        parents = reduce(
+            lambda terms, term: terms.union({
+                parent
+                for parent in ancestors_within_distance(graph, term['id'], max_distance)
+                if parent not in terms_set
+            }),
+            terms_list,
+            set()
+        )
+        return [
+            {
+                'type': 'go',
+                'id': term_id,
+                'properties': {},
+            }
+            for term_id in parents
         ]
 
     def go_terms(self):
@@ -101,10 +128,18 @@ class Protein:
     def go_terms_children(self, graph, max_distance):
         return self.get_children('go', graph, max_distance)
 
+    def go_terms_parents(self, graph, max_distance):
+        return self.get_parents('go', graph, max_distance)
+
     @staticmethod
     def build_graph(url_or_file):
         # example url to use: https://current.geneontology.org/ontology/go-basic.obo
         return obonet.read_obo(url_or_file)
+
+    def ia(self, term_type, graph):
+        parent_count = float(len(self.get_parents(term_type, graph)))
+        term_count = float(len(self.get_terms(term_type)))
+        return math.log2((1.0 + parent_count) / (1.0 + term_count))
 
     def one_hot_sequence(self):
         n = len(self.sequence)
