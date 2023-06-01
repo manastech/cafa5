@@ -1,4 +1,5 @@
 from .structure import Structure, STRUCTURE_TERMS
+from .utils import ancestors_within_distance
 import xml.parsers.expat as xml_parser
 import requests
 import re
@@ -100,13 +101,13 @@ class Protein:
             for term_id in children
         ]
 
-    def get_parents(self, term_type, graph):
+    def get_parents(self, term_type, graph, max_distance=1):
         terms_list = self.get_terms(term_type)
         terms_set = set([ term['id'] for term in terms_list ])
         parents = reduce(
             lambda terms, term: terms.union({
                 parent
-                for parent in networkx.ancestors(graph, term['id'])
+                for parent in ancestors_within_distance(graph, term['id'], max_distance)
                 if parent not in terms_set
             }),
             terms_list,
@@ -127,8 +128,8 @@ class Protein:
     def go_terms_children(self, graph, max_distance):
         return self.get_children('go', graph, max_distance)
 
-    def go_terms_parents(self, graph):
-        return self.get_parents('go', graph)
+    def go_terms_parents(self, graph, max_distance):
+        return self.get_parents('go', graph, max_distance)
 
     @staticmethod
     def build_graph(url_or_file):
