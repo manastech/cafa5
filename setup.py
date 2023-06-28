@@ -15,6 +15,7 @@ setup(
         'tensorflow >=2.12.0, <3.0.0',
         'networkx >=3.1, <4.0',
         'obonet >=1.0.0, <2.0.0',
+        'scikit-learn >=1.2.2, <2.0.0',
     ],
     description="manas ML model for cafa5 contest",
     url="https://github.com/manastech/cafa5",

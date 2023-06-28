@@ -35,6 +35,12 @@ class Protein:
         protein.load_url(url)
         return protein
 
+    @staticmethod
+    def from_data(name, data):
+        protein = Protein(name, autoload=False)
+        protein._apply_parsed(Protein.parse_xml(data))
+        return protein
+
     def load_uniprot(self):
         self.load_url(f'https://rest.uniprot.org/uniprotkb/{self.name}.xml')
 
