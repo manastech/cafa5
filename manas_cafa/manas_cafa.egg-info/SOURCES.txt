@@ -1,0 +1,6 @@
+setup.py
+manas_cafa.egg-info/PKG-INFO
+manas_cafa.egg-info/SOURCES.txt
+manas_cafa.egg-info/dependency_links.txt
+manas_cafa.egg-info/requires.txt
+manas_cafa.egg-info/top_level.txt
